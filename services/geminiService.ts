@@ -62,10 +62,10 @@ async function uploadImage(apiKey: string, dataUrl: string): Promise<string> {
     body: formData,
   });
   const json = await resp.json();
-  if (json.code !== 200 || !json.data?.fileUrl) {
+  if (json.code !== 200 || !json.data?.downloadUrl) {
     throw new Error('参考图上传失败：' + (json.msg || resp.status));
   }
-  return json.data.fileUrl as string;
+  return json.data.downloadUrl as string;
 }
 
 /**
