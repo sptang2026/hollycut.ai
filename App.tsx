@@ -468,7 +468,7 @@ export default function App() {
               <input
                 ref={keyInputRef}
                 type="password"
-                placeholder="在此粘贴您的 Gemini API Key"
+                placeholder="在此粘贴您的 KIE API Key"
                 className="w-full bg-[#FAF9F6] border-2 border-[#002FA7] py-3 px-4 text-[#002FA7] font-mono focus:outline-none focus:ring-4 focus:ring-[#FF4500]/30 transition-all placeholder:text-[#002FA7]/40 text-center"
               />
               {keyError && (
@@ -485,8 +485,8 @@ export default function App() {
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-[#002FA7]/60 hover:text-[#FF4500] font-mono underline decoration-dashed underline-offset-4">
-              获取 Gemini API Key &rarr;
+            <a href="https://kie.ai/api-key" target="_blank" rel="noreferrer" className="text-xs text-[#002FA7]/60 hover:text-[#FF4500] font-mono underline decoration-dashed underline-offset-4">
+              获取 KIE API Key &rarr;
             </a>
           </div>
         </motion.div>
