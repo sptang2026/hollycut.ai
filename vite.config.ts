@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       }
     },
-    // 为 GitHub Pages 部署设置基础路径 (必须与仓库名一致)
-    base: '/hollycut.ai/',
+    // 相对路径：兼容 Vercel 根路径 与 GitHub Pages 子路径部署
+    base: './',
   };
 });
