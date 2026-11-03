@@ -7,7 +7,7 @@
 
 ## 1. 认证
 - 所有请求头：`Authorization: Bearer <KIE_API_KEY>`
-- **key 严禁写入前端代码**。本项目通过首页输入框运行时输入，存 localStorage（key 名 `gemini_api_key`）。
+- **key 严禁写入前端代码**。本项目由服务端读取 `KIE_API_KEY`，前端通过 `/api/kie` 调用，不再要求访客输入或使用 localStorage 保存密钥。
 - key 获取/重置：https://kie.ai/api-key
 
 ## 2. 基础地址
@@ -59,7 +59,7 @@ GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=<taskId>
 
 ## 4. 模型清单
 
-### nano-banana-2（当前线上，= Google Gemini 2.5 Flash Image）
+### nano-banana-2（当前线上）
 单端点，**根据是否带 `image_input` 自动切换**文生图/图生图。
 ```json
 {

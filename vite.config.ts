@@ -1,19 +1,28 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import basicSsl from '@vitejs/plugin-basic-ssl';
 import { qrcode } from 'vite-plugin-qrcode';
+import { createKieHandler } from './server/kieProxy';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     server: {
       port: 3000,
-      host: true, // 开启局域网访问
+      host: '127.0.0.1', // 本机默认仅监听回环地址
     },
     plugins: [
+      {
+        name: 'local-kie-api',
+        configureServer(server) {
+          const handler = createKieHandler(() => process.env.KIE_API_KEY || env.KIE_API_KEY);
+          server.middlewares.use((req, res, next) => {
+            if (req.url?.split('?')[0] === '/api/kie') void handler(req, res);
+            else next();
+          });
+        },
+      },
       react(),
-      basicSsl(), // 自动生成自签名证书
       qrcode() // 终端显示二维码
     ],
     define: {
@@ -24,7 +33,7 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       }
     },
-    // 相对路径：兼容 Vercel 根路径 与 GitHub Pages 子路径部署
-    base: './',
+    // PWA 与服务端 API 均部署在 Vercel 根路径。
+    base: '/',
   };
 });

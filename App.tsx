@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import VConsole from 'vconsole';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clapperboard,
@@ -10,10 +9,8 @@ import {
   Wand2,
   RefreshCw,
   AlertCircle,
-  Key,
   ChevronRight,
   FileText,
-  LogOut,
   CheckCircle2,
   Video,
   Disc,
@@ -21,7 +18,8 @@ import {
   Star
 } from 'lucide-react';
 import { AspectRatio, ASPECT_RATIO_LABELS } from './types';
-import { generateSetPhoto, editSetPhoto, getMoviePosterImpression } from './services/geminiService';
+import { generateSetPhoto, editSetPhoto } from './services/geminiService';
+import { PwaControls } from './components/PwaControls';
 
 // --- Types ---
 interface GenerationState {
@@ -109,11 +107,8 @@ const PROMPT_TEMPLATE = `【人物与面容】
 
 export default function App() {
   // --- State ---
-  const [apiKey, setApiKey] = useState<string>('');
-  const [showKeyInput, setShowKeyInput] = useState(true);
-  const [keyError, setKeyError] = useState<string | null>(null);
-
   const [movieName, setMovieName] = useState('');
+  const [online, setOnline] = useState(navigator.onLine);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.TIKTOK);
   const [dof, setDof] = useState<DofOption>(DOF_OPTIONS[0]);
   const [imageCount, setImageCount] = useState<1 | 2>(1);
@@ -139,44 +134,24 @@ export default function App() {
   const [posterBackground, setPosterBackground] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const keyInputRef = useRef<HTMLInputElement>(null);
+  const taskInFlight = useRef(false);
 
-  // --- Mobile Debugging ---
+  // Load the debugging console only when requested.
   useEffect(() => {
-    // Only init VConsole in development or if explicitly requested via URL param ?debug=true
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
     if (import.meta.env.DEV || new URLSearchParams(window.location.search).get('debug') === 'true') {
-      const vConsole = new VConsole();
-      return () => { vConsole.destroy(); };
+      void import('vconsole').then(({ default: VConsole }) => {
+        if (cancelled) return;
+        const console = new VConsole();
+        dispose = () => console.destroy();
+      });
     }
+    return () => { cancelled = true; dispose?.(); };
   }, []);
-
-  // --- Initialization ---
-  useEffect(() => {
-    const storedKey = localStorage.getItem('gemini_api_key');
-    if (storedKey) {
-      setApiKey(storedKey);
-      setShowKeyInput(false);
-    }
-  }, []);
-
-  // --- Background Generation ---
-  useEffect(() => {
-    const trimmedMovie = movieName.trim();
-    if (!trimmedMovie || !apiKey) return;
-
-    const timer = setTimeout(() => {
-      getMoviePosterImpression(apiKey, trimmedMovie)
-        .then(url => {
-          if (url) setPosterBackground(url);
-        })
-        .catch(err => console.error("Failed to load background", err));
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [movieName, apiKey]);
 
   // --- Helpers ---
-  const getRatioText = (ratio: AspectRatio) => ASPECT_RATIO_LABELS[ratio].split(' ')[1] + '竖幅';
+  const getRatioText = (ratio: AspectRatio) => `${ratio}${['9:16', '3:4'].includes(ratio) ? '竖幅' : '横幅'}`;
 
   const buildPromptFromTemplate = (movie: string, ratio: AspectRatio, currentDof: DofOption) => {
     const moviePlaceholder = movie.trim() || '[电影名称]';
@@ -189,23 +164,6 @@ export default function App() {
   };
 
   // --- Handlers ---
-  const handleSaveKey = () => {
-    setKeyError(null);
-    const rawKey = keyInputRef.current?.value.trim() || '';
-    if (!rawKey) { setKeyError("请输入 API Key"); return; }
-    // eslint-disable-next-line no-control-regex
-    if (/[^\x00-\x7F]/.test(rawKey)) { setKeyError("API Key 包含非法字符。"); return; }
-    localStorage.setItem('gemini_api_key', rawKey);
-    setApiKey(rawKey);
-    setShowKeyInput(false);
-  };
-
-  const handleClearKey = () => {
-    localStorage.removeItem('gemini_api_key');
-    setApiKey('');
-    setShowKeyInput(true);
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -224,12 +182,13 @@ export default function App() {
   };
 
   const handleGenerate = async () => {
+    if (taskInFlight.current) return;
+    if (!navigator.onLine) { setAppState(prev => ({ ...prev, error: "当前离线，请联网后再生成图片。" })); return; }
     if (!uploadedImage) { setAppState(prev => ({ ...prev, error: "请先上传一张您的照片" })); return; }
-    if (!movieName) { setAppState(prev => ({ ...prev, error: "请输入电影名称" })); return; }
-    if (!apiKey) { setShowKeyInput(true); return; }
+    if (!movieName.trim()) { setAppState(prev => ({ ...prev, error: "请输入电影名称" })); return; }
 
-    setAppState({ isGenerating: true, isEditing: false, resultImages: [], error: null });
-    setSelectedImageIndex(0);
+    taskInFlight.current = true;
+    setAppState(prev => ({ ...prev, isGenerating: true, error: null }));
 
     let activePrompt = promptText;
     const currentMovie = movieName.trim();
@@ -258,34 +217,35 @@ export default function App() {
     setPromptText(activePrompt);
 
     try {
-      const results = await generateSetPhoto(apiKey, activePrompt, uploadedImage, aspectRatio, imageCount);
-      setAppState({ isGenerating: false, isEditing: false, resultImages: results, error: null });
+      const results = await generateSetPhoto(activePrompt, uploadedImage, aspectRatio, imageCount);
+      const firstNewIndex = appState.resultImages.length;
+      setAppState(prev => ({ ...prev, isGenerating: false, resultImages: [...prev.resultImages, ...results], error: null }));
+      setSelectedImageIndex(firstNewIndex);
+      setPosterBackground(results[0] || null);
+      document.getElementById('results')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
     } catch (err: any) {
-      let errorMessage = err.message || "生成失败";
-      if (typeof errorMessage === 'string' && errorMessage.includes('ISO-8859-1')) {
-        errorMessage = "API Key 包含非法字符，请重置。";
-        handleClearKey();
-      }
-      setAppState({ isGenerating: false, isEditing: false, resultImages: [], error: errorMessage });
-      if (errorMessage && (errorMessage.includes('API Key') || errorMessage.includes('403'))) {
-        setShowKeyInput(true);
-      }
+      setAppState(prev => ({ ...prev, isGenerating: false, error: err.message || "生成失败" }));
+    } finally {
+      taskInFlight.current = false;
     }
   };
 
   const handleEdit = async () => {
     const currentImage = appState.resultImages[selectedImageIndex];
-    if (!currentImage || !editPrompt) return;
-    if (!apiKey) { setShowKeyInput(true); return; }
+    if (!currentImage || !editPrompt.trim() || taskInFlight.current) return;
+    if (!navigator.onLine) { setAppState(prev => ({ ...prev, error: "当前离线，请联网后再编辑图片。" })); return; }
+    taskInFlight.current = true;
 
     setAppState(prev => ({ ...prev, isEditing: true, error: null }));
     try {
-      const result = await editSetPhoto(apiKey, currentImage, editPrompt);
+      const result = await editSetPhoto(currentImage, editPrompt);
       setAppState(prev => ({ ...prev, isEditing: false, resultImages: [...prev.resultImages, result] }));
       setSelectedImageIndex(appState.resultImages.length);
       setEditPrompt('');
     } catch (err: any) {
       setAppState(prev => ({ ...prev, isEditing: false, error: err.message || "编辑失败" }));
+    } finally {
+      taskInFlight.current = false;
     }
   };
 
@@ -380,7 +340,7 @@ export default function App() {
   );
 
   const JazzFooter = () => (
-    <div className="fixed bottom-0 left-0 w-full h-10 bg-[#002FA7] text-[#FAF9F6] flex items-center justify-between px-4 z-40 overflow-hidden shadow-[0_-4px_20px_rgba(0,47,167,0.3)]">
+    <div className="app-footer fixed bottom-0 left-0 w-full bg-[#002FA7] text-[#FAF9F6] flex items-center justify-between px-4 z-40 overflow-hidden shadow-[0_-4px_20px_rgba(0,47,167,0.3)]">
       <div className="flex w-full justify-between items-center text-[10px] md:text-xs font-mono tracking-widest uppercase">
         <div className="flex items-center gap-4">
           <span className="hidden md:inline font-serif italic font-black">HOLLYWOOD CUT</span>
@@ -438,91 +398,31 @@ export default function App() {
     </div>
   );
 
-  // --- Welcome Screen ---
-  if (showKeyInput) {
-    return (
-      <div className="min-h-screen bg-[#FAF9F6] text-[#002FA7] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <LivelyBackground poster={null} />
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white border-4 border-[#002FA7] p-8 shadow-[12px_12px_0px_0px_rgba(0,47,167,1)] relative z-10"
-        >
-          {/* Decorative Corner Stars */}
-          <Star className="absolute top-2 left-2 w-4 h-4 text-[#FF4500] fill-current" />
-          <Star className="absolute top-2 right-2 w-4 h-4 text-[#FF4500] fill-current" />
-          <Star className="absolute bottom-2 left-2 w-4 h-4 text-[#FF4500] fill-current" />
-          <Star className="absolute bottom-2 right-2 w-4 h-4 text-[#FF4500] fill-current" />
-
-          <div className="flex flex-col items-center text-center space-y-6">
-            <div className="w-20 h-20 bg-[#002FA7] rounded-full flex items-center justify-center text-white ring-4 ring-[#FF4500] ring-offset-4 ring-offset-white shadow-xl">
-              <Clapperboard className="w-10 h-10" />
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-4xl font-black font-serif italic text-[#002FA7] tracking-tight">HOLLYWOOD <span className="text-[#FF4500]">CUT</span></h1>
-              <p className="text-[#8B4513] font-medium font-serif italic text-lg">
-                好莱坞片场之旅
-              </p>
-            </div>
-            <div className="w-full space-y-4">
-              <input
-                ref={keyInputRef}
-                type="password"
-                placeholder="在此粘贴您的 KIE API Key"
-                className="w-full bg-[#FAF9F6] border-2 border-[#002FA7] py-3 px-4 text-[#002FA7] font-mono focus:outline-none focus:ring-4 focus:ring-[#FF4500]/30 transition-all placeholder:text-[#002FA7]/40 text-center"
-              />
-              {keyError && (
-                <div className="flex items-center justify-center gap-2 text-[#FF4500] font-bold text-xs">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>{keyError}</span>
-                </div>
-              )}
-              <button
-                onClick={handleSaveKey}
-                className="w-full py-3 bg-[#002FA7] text-white font-bold text-lg hover:bg-[#FF4500] transition-colors shadow-lg flex items-center justify-center gap-2"
-              >
-                进入电影片场
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-            <a href="https://kie.ai/api-key" target="_blank" rel="noreferrer" className="text-xs text-[#002FA7]/60 hover:text-[#FF4500] font-mono underline decoration-dashed underline-offset-4">
-              获取 KIE API Key &rarr;
-            </a>
-          </div>
-        </motion.div>
-        <div className="absolute bottom-8 text-[#002FA7]/40 text-sm font-black tracking-widest uppercase">
-          KLEIN BLUE EDITION
-        </div>
-      </div>
-    );
-  }
-
   // --- Main App ---
   return (
-    <div className="min-h-screen text-[#002FA7] pb-20 flex flex-col items-center relative overflow-x-hidden bg-[#FAF9F6]">
+    <div className="app-shell text-[#002FA7] pb-20 flex flex-col items-center relative overflow-x-hidden bg-[#FAF9F6]">
       <LivelyBackground poster={posterBackground} />
 
-      <header className="w-full max-w-6xl mt-8 mb-10 flex flex-col items-center text-center space-y-4 px-4 relative z-10">
+      <header className="app-header w-full max-w-6xl mt-6 mb-6 sm:mb-10 flex flex-col items-center text-center space-y-4 px-4 relative z-10">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="flex flex-col items-center relative">
           <div className="inline-block bg-[#002FA7] text-white px-2 py-1 mb-2 transform -rotate-2 shadow-md">
             <span className="text-xs font-bold font-mono tracking-widest uppercase">Production: MovieCut</span>
           </div>
-          <h1 className="text-6xl md:text-8xl font-black font-serif italic text-[#002FA7] tracking-tighter leading-none drop-shadow-sm">
+          <h1 className="text-5xl sm:text-6xl md:text-8xl font-black font-serif italic text-[#002FA7] tracking-tighter leading-none drop-shadow-sm">
             Hollywood <span className="text-[#FF4500]">Cut</span>
           </h1>
           <p className="mt-4 text-[#8B4513] font-medium font-serif text-lg tracking-wide border-b-2 border-[#FF4500] border-dashed pb-1">
             打造您的专属电影时刻
           </p>
-          <button onClick={handleClearKey} className="absolute top-2 right-[-80px] hidden lg:flex items-center gap-1 text-[10px] text-[#002FA7]/50 hover:text-[#FF4500] font-mono font-bold" title="清除 Key">
-            <LogOut className="w-3 h-3" /> RESET
-          </button>
         </motion.div>
       </header>
 
-      <main className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 px-6 relative z-10">
+      <PwaControls busy={appState.isGenerating || appState.isEditing} hasResults={appState.resultImages.length > 0} onConnectivityChange={setOnline} />
+
+      <main className="app-main w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 px-4 sm:px-6 relative z-10">
 
         {/* Left Column: Controls */}
-        <motion.section initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
+        <motion.section initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="min-w-0 space-y-6 sm:space-y-8">
 
           {/* Upload */}
           <div className="space-y-3">
@@ -532,8 +432,8 @@ export default function App() {
               <div className="h-0.5 bg-[#002FA7]/20 flex-grow"></div>
             </div>
 
-            <div onClick={() => fileInputRef.current?.click()} className="group cursor-pointer relative w-full h-40 bg-white border-2 border-dashed border-[#002FA7] hover:border-[#FF4500] hover:bg-[#fffbf0] transition-all flex flex-col items-center justify-center overflow-hidden shadow-sm">
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+            <button type="button" aria-label="上传人物参考图" onClick={() => fileInputRef.current?.click()} className="group cursor-pointer relative w-full h-40 bg-white border-2 border-dashed border-[#002FA7] hover:border-[#FF4500] hover:bg-[#fffbf0] transition-all flex flex-col items-center justify-center overflow-hidden shadow-sm">
               {uploadedImage ? (
                 <img src={uploadedImage} alt="Preview" className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
               ) : (
@@ -547,22 +447,24 @@ export default function App() {
                   <p className="bg-[#002FA7] px-4 py-2 text-xs font-bold text-white shadow-lg transform -rotate-2">更换素材</p>
                 </div>
               )}
-            </div>
+            </button>
           </div>
 
           {/* Movie Details */}
-          <div className="space-y-5 bg-white p-6 border-2 border-[#002FA7] shadow-[8px_8px_0px_0px_rgba(255,69,0,0.2)]">
+          <div className="space-y-5 bg-white p-4 sm:p-6 border-2 border-[#002FA7] shadow-[8px_8px_0px_0px_rgba(255,69,0,0.2)]">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-3 h-3 bg-[#FF4500] rounded-full"></div>
               <h2 className="text-sm font-black font-sans tracking-widest text-[#002FA7] uppercase">场景设定 (Scene)</h2>
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-[#8B4513] font-bold uppercase font-mono">电影名称</label>
+              <label htmlFor="movie-name" className="text-xs text-[#8B4513] font-bold uppercase font-mono">电影名称</label>
               <div className="relative">
                 <Film className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#002FA7]" />
                 <input
+                  id="movie-name"
                   type="text"
+                  enterKeyHint="done"
                   value={movieName}
                   onChange={(e) => setMovieName(e.target.value)}
                   placeholder="例如: 爱乐之城 (La La Land)"
@@ -577,6 +479,7 @@ export default function App() {
                 {Object.values(AspectRatio).map((ratio) => (
                   <button
                     key={ratio}
+                    aria-pressed={aspectRatio === ratio}
                     onClick={() => setAspectRatio(ratio)}
                     className={`flex-1 py-2 px-1 text-[10px] md:text-xs font-bold font-mono border-2 transition-all 
                       ${aspectRatio === ratio
@@ -596,6 +499,7 @@ export default function App() {
                 {DOF_OPTIONS.map((option) => (
                   <button
                     key={option.id}
+                    aria-pressed={dof.id === option.id}
                     onClick={() => setDof(option)}
                     className={`flex-1 py-2 px-1 text-[10px] md:text-xs font-bold font-mono border-2 transition-all 
                       ${dof.id === option.id
@@ -624,6 +528,7 @@ export default function App() {
 
             <div className="relative group">
               <textarea
+                aria-label="导演指令"
                 value={promptText}
                 onChange={(e) => setPromptText(e.target.value)}
                 placeholder="输入电影名称后点击上方按钮..."
@@ -659,7 +564,7 @@ export default function App() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleGenerate}
-              disabled={appState.isGenerating || appState.isEditing}
+              disabled={!online || appState.isGenerating || appState.isEditing}
               className={`w-full py-5 font-black text-2xl tracking-widest shadow-[8px_8px_0px_0px_#002FA7] flex items-center justify-center gap-3 transition-all uppercase relative overflow-hidden border-4 border-[#002FA7]
                 ${appState.isGenerating
                   ? 'bg-gray-100 text-gray-400 border-gray-300 cursor-wait shadow-none'
@@ -686,10 +591,10 @@ export default function App() {
         </motion.section>
 
         {/* Right Column: Result & Edit */}
-        <motion.section initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full space-y-6 pb-20">
+        <motion.section initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} id="results" className="min-w-0 flex flex-col h-full space-y-6 pb-8">
 
           {/* Main Image Display */}
-          <div className="relative flex-grow min-h-[500px] bg-white border-4 border-[#002FA7] flex items-center justify-center overflow-hidden shadow-2xl flex-col p-2">
+          <div className="relative flex-grow min-h-[300px] sm:min-h-[500px] bg-white border-4 border-[#002FA7] flex items-center justify-center overflow-hidden shadow-2xl flex-col p-2">
 
             {/* Inner Border */}
             <div className="absolute inset-2 border border-dashed border-[#002FA7]/30 pointer-events-none z-20"></div>
@@ -720,7 +625,7 @@ export default function App() {
                 transition={{ duration: 0.5, type: "spring" }}
                 src={appState.resultImages[selectedImageIndex]}
                 alt="Generated Result"
-                className="w-full h-full object-contain max-h-[85vh] z-10 relative shadow-inner"
+                className="w-full h-full object-contain max-h-[80dvh] z-10 relative shadow-inner"
               />
             )}
 
@@ -769,18 +674,20 @@ export default function App() {
                   <span className="text-xs font-black font-mono uppercase tracking-wider">POST-PRODUCTION (Magic Edit)</span>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
+                    aria-label="后期编辑指令"
+                    enterKeyHint="send"
                     value={editPrompt}
                     onChange={(e) => setEditPrompt(e.target.value)}
                     placeholder="输入指令: 增加噪点, 变成黑白, 移除路人..."
-                    className="flex-grow bg-[#FAF9F6] border border-[#002FA7]/30 py-2 px-4 text-xs md:text-sm text-[#002FA7] focus:outline-none focus:border-[#FF4500] font-mono"
-                    onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
+                    className="min-w-0 flex-grow bg-[#FAF9F6] border border-[#002FA7]/30 py-2 px-4 text-xs md:text-sm text-[#002FA7] focus:outline-none focus:border-[#FF4500] font-mono"
+                    onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleEdit()}
                   />
                   <button
                     onClick={handleEdit}
-                    disabled={!editPrompt.trim() || appState.isEditing}
+                    disabled={!online || !editPrompt.trim() || appState.isEditing || appState.isGenerating}
                     className="bg-[#002FA7] text-white px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-[#002280] disabled:opacity-50 disabled:cursor-not-allowed shadow-md flex items-center gap-2"
                   >
                     {appState.isEditing ? <RefreshCw className="w-3 h-3 animate-spin" /> : "APPLY CUT"}

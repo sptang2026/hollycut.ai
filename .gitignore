@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Private server credentials and platform state
+.env*
+!.env.example
+.vercel/

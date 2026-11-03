@@ -1,1 +1,43 @@
 @import "tailwindcss";
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 1rem;
+}
+body { min-width: 280px; }
+button, a, [role="button"] { touch-action: manipulation; }
+button, [role="button"] { user-select: none; -webkit-user-select: none; }
+button:not(:disabled):active { filter: brightness(.92); }
+button:focus-visible, a:focus-visible { outline: 3px solid #FF4500; outline-offset: 4px; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+.app-header { padding-top: env(safe-area-inset-top, 0px); }
+.app-main, .pwa-tools {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+.app-footer {
+  min-height: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+.pwa-tools { width: 100%; max-width: 72rem; margin: 0 auto 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.pwa-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .65rem 1rem; border: 2px solid #002FA7; background: #fff; color: #002FA7; font-size: .875rem; font-weight: 700; }
+.install-button { margin-left: auto; }
+.pwa-notice { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; padding: .75rem 1rem; background: #fff4e5; border-left: 4px solid #FF4500; color: #002FA7; font-size: .875rem; width: 100%; }
+.install-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 3rem); overflow-y: auto; padding: 1.5rem; color: #002FA7; background: #FAF9F6; border: 3px solid #002FA7; box-shadow: 6px 6px 0 #FF4500; margin: auto; }
+.install-dialog::backdrop { background: rgba(0, 20, 60, .5); }
+.icon-button { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+  button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

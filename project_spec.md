@@ -1,7 +1,7 @@
 # 项目规格书："Hollywood Cut" (电影级 AI 幕后照生成器) - 爵士西部版
 
 **角色：** 你是一名世界级的前端工程师和先锋 UI 设计师。
-**目标：** 构建一个名为 "Hollywood Cut" 的单页 React 应用程序，利用 Google Gemini API 生成超写实的电影幕后片场照。
+**目标：** 构建一个名为 "Hollywood Cut" 的单页 React 应用程序，利用 KIE API 的 nano-banana-2 模型 生成超写实的电影幕后片场照。
 
 ## 1. 技术架构
 *   **框架:** React 19 (ES Modules, 无需构建步骤)。
@@ -9,7 +9,7 @@
 *   **动画:** Framer Motion (用于丝滑的过渡、加载和交互)。
 *   **图标:** Lucide React。
 *   **AI 集成:** `@google/genai` SDK。
-*   **持久化:** 使用 `localStorage` 存储 API Key。
+*   **持久化:** 服务端从 `KIE_API_KEY` 环境变量读取凭据，浏览器不保存密钥。
 
 ## 2. 视觉风格：“克莱因蓝 + 爵士西部 (Klein Blue Jazz Western)”
 应用程序应呈现出一种**轻松、活泼、充满艺术气息**的氛围，融合了现代波普艺术的高饱和度与西部爵士的复古情调。
