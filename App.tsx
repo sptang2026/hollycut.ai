@@ -135,6 +135,8 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const taskInFlight = useRef(false);
+  const currentMovie = movieName.trim();
+  const canGeneratePrompt = Boolean(uploadedImage && currentMovie);
 
   // Load the debugging console only when requested.
   useEffect(() => {
@@ -154,11 +156,10 @@ export default function App() {
   const getRatioText = (ratio: AspectRatio) => `${ratio}${['9:16', '3:4'].includes(ratio) ? '竖幅' : '横幅'}`;
 
   const buildPromptFromTemplate = (movie: string, ratio: AspectRatio, currentDof: DofOption) => {
-    const moviePlaceholder = movie.trim() || '[电影名称]';
     const ratioText = getRatioText(ratio);
 
     return PROMPT_TEMPLATE
-      .split('[INSERT MOVIE NAME HERE]').join(moviePlaceholder)
+      .split('[INSERT MOVIE NAME HERE]').join(movie)
       .split('[INSERT RATIO HERE]').join(ratioText)
       .split('[INSERT DOF HERE]').join(currentDof.prompt);
   };
@@ -174,9 +175,11 @@ export default function App() {
   };
 
   const handleGeneratePrompt = () => {
-    const newPrompt = buildPromptFromTemplate(movieName, aspectRatio, dof);
+    if (!canGeneratePrompt || appState.isGenerating) return;
+
+    const newPrompt = buildPromptFromTemplate(currentMovie, aspectRatio, dof);
     setPromptText(newPrompt);
-    setLastGeneratedMovie(movieName.trim() || '[电影名称]');
+    setLastGeneratedMovie(currentMovie);
     setLastGeneratedRatio(aspectRatio);
     setLastGeneratedDofPrompt(dof.prompt);
   };
@@ -185,39 +188,35 @@ export default function App() {
     if (taskInFlight.current) return;
     if (!navigator.onLine) { setAppState(prev => ({ ...prev, error: "当前离线，请联网后再生成图片。" })); return; }
     if (!uploadedImage) { setAppState(prev => ({ ...prev, error: "请先上传一张您的照片" })); return; }
-    if (!movieName.trim()) { setAppState(prev => ({ ...prev, error: "请输入电影名称" })); return; }
+    if (!currentMovie) { setAppState(prev => ({ ...prev, error: "请输入电影名称" })); return; }
 
     taskInFlight.current = true;
     setAppState(prev => ({ ...prev, isGenerating: true, error: null }));
 
     let activePrompt = promptText;
-    const currentMovie = movieName.trim();
 
     if (!activePrompt.trim()) {
       activePrompt = buildPromptFromTemplate(currentMovie, aspectRatio, dof);
-      setLastGeneratedMovie(currentMovie);
-      setLastGeneratedRatio(aspectRatio);
-      setLastGeneratedDofPrompt(dof.prompt);
     } else {
       if (lastGeneratedMovie && lastGeneratedMovie !== currentMovie) {
         activePrompt = activePrompt.split(lastGeneratedMovie).join(currentMovie);
-        setLastGeneratedMovie(currentMovie);
       }
       if (lastGeneratedRatio && lastGeneratedRatio !== aspectRatio) {
         const oldRatioText = getRatioText(lastGeneratedRatio);
         const newRatioText = getRatioText(aspectRatio);
         activePrompt = activePrompt.split(oldRatioText).join(newRatioText);
-        setLastGeneratedRatio(aspectRatio);
       }
       if (lastGeneratedDofPrompt && lastGeneratedDofPrompt !== dof.prompt) {
         activePrompt = activePrompt.split(lastGeneratedDofPrompt).join(dof.prompt);
-        setLastGeneratedDofPrompt(dof.prompt);
       }
     }
-    setPromptText(activePrompt);
 
     try {
       const results = await generateSetPhoto(activePrompt, uploadedImage, aspectRatio, imageCount);
+      setPromptText(activePrompt);
+      setLastGeneratedMovie(currentMovie);
+      setLastGeneratedRatio(aspectRatio);
+      setLastGeneratedDofPrompt(dof.prompt);
       const firstNewIndex = appState.resultImages.length;
       setAppState(prev => ({ ...prev, isGenerating: false, resultImages: [...prev.resultImages, ...results], error: null }));
       setSelectedImageIndex(firstNewIndex);
@@ -521,7 +520,7 @@ export default function App() {
                 <div className="w-3 h-3 bg-[#002FA7] rotate-45"></div>
                 <h2 className="text-sm font-black font-sans tracking-widest text-[#002FA7] uppercase">导演指令 (Director)</h2>
               </div>
-              <button onClick={handleGeneratePrompt} className="text-xs bg-[#002FA7] hover:bg-[#002280] text-white px-3 py-1 font-bold flex items-center gap-1 transition-colors shadow-sm transform hover:-rotate-1">
+              <button type="button" onClick={handleGeneratePrompt} disabled={!canGeneratePrompt || appState.isGenerating} className="text-xs bg-[#002FA7] hover:bg-[#002280] text-white px-3 py-1 font-bold flex items-center gap-1 transition-colors shadow-sm transform hover:-rotate-1">
                 <FileText className="w-3 h-3" /> 生成指令
               </button>
             </div>
@@ -529,9 +528,10 @@ export default function App() {
             <div className="relative group">
               <textarea
                 aria-label="导演指令"
-                value={promptText}
+                value={canGeneratePrompt ? promptText : ''}
                 onChange={(e) => setPromptText(e.target.value)}
-                placeholder="输入电影名称后点击上方按钮..."
+                readOnly={!canGeneratePrompt || appState.isGenerating}
+                placeholder={canGeneratePrompt ? '点击「生成指令」预览，或在 Action 出图后查看。' : '请先上传人物参考图并输入电影名称。'}
                 className="w-full h-40 bg-white border-2 border-[#002FA7]/20 rounded-none p-4 text-xs text-[#002FA7] font-mono resize-none focus:outline-none focus:border-[#002FA7] focus:shadow-inner transition-all leading-relaxed"
                 spellCheck={false}
               />
