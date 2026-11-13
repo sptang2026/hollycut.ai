@@ -4,7 +4,11 @@ const PRECACHE = __PRECACHE__;
 const STATIC_PATHS = new Set(PRECACHE);
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(PRECACHE);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', event => {
@@ -16,10 +20,6 @@ self.addEventListener('activate', event => {
   })());
 });
 
-self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
-});
-
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
@@ -27,8 +27,13 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (request.mode === 'navigate' && (url.pathname === '/' || url.pathname === '/index.html')) {
     event.respondWith((async () => {
-      const cached = await (await caches.open(CACHE_NAME)).match('/index.html');
-      return cached || fetch(request);
+      try {
+        return await fetch(request);
+      } catch (error) {
+        const cached = await (await caches.open(CACHE_NAME)).match('/index.html');
+        if (cached) return cached;
+        throw error;
+      }
     })());
     return;
   }

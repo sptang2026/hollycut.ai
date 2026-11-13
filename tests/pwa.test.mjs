@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 
 const template = await readFile('pwa/service-worker.js', 'utf8');
-function worker() {
+function worker({ online = true } = {}) {
   const handlers = {};
   const calls = { added: [], fetched: [], skipped: 0, claimed: 0 };
   const cache = { addAll: async paths => calls.added.push(...paths), match: async key => key === '/index.html' ? new Response('offline shell') : undefined };
@@ -15,7 +15,11 @@ function worker() {
     URL, Set, Promise,
     self: { location: { origin: 'https://example.com' }, addEventListener: (name, fn) => { handlers[name] = fn; }, skipWaiting: () => { calls.skipped++; }, clients: { claim: async () => { calls.claimed++; } } },
     caches: { open: async () => cache, keys: async () => ['hollycut-shell-test'], delete: async () => true },
-    fetch: async request => { calls.fetched.push(request); return new Response('network'); },
+    fetch: async request => {
+      calls.fetched.push(request);
+      if (!online) throw new TypeError('Offline');
+      return new Response('network');
+    },
   };
   vm.runInNewContext(template.replace('__CACHE_NAME__', '"hollycut-shell-test"').replace('__PRECACHE__', JSON.stringify(['/index.html', '/assets/app.js', '/manifest.webmanifest'])), context);
   return { handlers, calls };
@@ -48,19 +52,22 @@ test('worker leaves API, uploaded images, POSTs and external resources entirely 
   }
 });
 
-test('offline shell is installed without forcing an update and serves offline navigation', async () => {
+test('updated shell activates after caching and navigation prefers the network with an offline fallback', async () => {
   const { handlers, calls } = worker();
   let pending;
   handlers.install({ waitUntil: promise => { pending = promise; } });
   await pending;
   assert.deepEqual(calls.added, ['/index.html', '/assets/app.js', '/manifest.webmanifest']);
-  assert.equal(calls.skipped, 0);
-  let response;
-  handlers.fetch({ request: { url: 'https://example.com/', method: 'GET', mode: 'navigate' }, respondWith: promise => { response = promise; } });
-  assert.equal(await (await response).text(), 'offline shell');
-  assert.equal(calls.fetched.length, 0);
-  handlers.message({ data: { type: 'SKIP_WAITING' } });
   assert.equal(calls.skipped, 1);
+
+  const request = { url: 'https://example.com/', method: 'GET', mode: 'navigate' };
+  let response;
+  const respondWith = promise => { response = promise; };
+  handlers.fetch({ request, respondWith });
+  assert.equal(await (await response).text(), 'network');
+
+  worker({ online: false }).handlers.fetch({ request, respondWith });
+  assert.equal(await (await response).text(), 'offline shell');
 });
 
 test('build changes cache version with asset contents and excludes private/server files', async () => {

@@ -417,7 +417,7 @@ export default function App() {
         </motion.div>
       </header>
 
-      <PwaControls busy={appState.isGenerating || appState.isEditing} hasResults={appState.resultImages.length > 0} onConnectivityChange={setOnline} />
+      <PwaControls onConnectivityChange={setOnline} />
 
       <main className="app-main w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 px-4 sm:px-6 relative z-10">
 
